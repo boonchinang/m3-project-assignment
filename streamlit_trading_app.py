@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.ensemble import RandomForestClassifier
@@ -34,6 +37,42 @@ with col_date1:
 with col_date2:
     end_date = st.date_input("End Date", datetime.date.today())
 
+# --- Sidebar Target Definition Controls ---
+st.sidebar.subheader("🎯 Target Definition Controls")
+
+future_period = st.sidebar.slider(
+    "FUTURE_PERIOD (Look-Ahead Horizon in Days)", 
+    min_value=1, max_value=60, value=20, step=1,
+    help="Number of trading days ahead to evaluate future returns."
+)
+
+buy_threshold_pct = st.sidebar.number_input(
+    "BUY_THRESHOLD (%)", 
+    min_value=0.0, max_value=50.0, value=6.0, step=0.5,
+    help="Future return > BUY_THRESHOLD triggers a Buy (+1) target signal."
+)
+buy_threshold = buy_threshold_pct / 100.0
+
+sell_threshold_pct = st.sidebar.number_input(
+    "SELL_THRESHOLD (%)", 
+    min_value=-50.0, max_value=0.0, value=-6.0, step=0.5,
+    help="Future return < SELL_THRESHOLD triggers a Sell (-1) target signal."
+)
+sell_threshold = sell_threshold_pct / 100.0
+
+# --- 3-Class Target Labeling ---
+def build_features_and_target(df, horizon, buy_th, sell_th):
+    data = df.copy()
+    data["Future_Return"] = data["Close"].shift(-horizon) / data["Close"] - 1.0
+    data = data.dropna(subset=["Future_Return"])
+    
+    conditions = [
+        data["Future_Return"] > buy_th,
+        data["Future_Return"] < sell_th
+    ]
+    data["Target"] = np.select(conditions, [1, -1], default=0)
+    return data
+
 st.sidebar.subheader("📊 Technical Indicators")
 short_window = st.sidebar.slider("Short SMA Window", 5, 50, 10)
 long_window = st.sidebar.slider("Long SMA Window", 20, 200, 50)
@@ -47,7 +86,6 @@ train_split = st.sidebar.slider("Train Data Ratio", 0.5, 0.9, 0.8, step=0.05)
 st.sidebar.subheader("💰 Backtest Simulation")
 initial_capital = st.sidebar.number_input("Initial Capital ($)", value=10000, step=1000)
 transaction_cost = st.sidebar.number_input("Transaction Cost per Trade (%)", value=0.1, step=0.05) / 100.0
-
 
 # --- Data Fetching & Caching ---
 @st.cache_data(ttl=3600)
@@ -236,22 +274,70 @@ with tab3:
         st.dataframe(recent_signals[['Close', 'Signal']], use_container_width=True)
 
 # --- TAB 4: Backtest Performance ---
+# Test period predictions & notebook alias mappings
+y_test_pred = model.predict(X_test)
+test_sig = y_test_pred                 # Notebook predictions alias
+test_bt = test_df                      # Notebook backtest DataFrame alias
+INITIAL_CAPITAL = initial_capital      # Sidebar capital alias
+TRANSACTION_FEE = transaction_cost     # Sidebar fee alias
+test_row = {                           # Financial metrics dictionary alias
+    "Trades": test_df["Position_Filled"].diff().abs().fillna(test_df["Position_Filled"].abs()).gt(0).sum(),
+    "% Days in Market": (test_df["Position_Filled"] != 0).mean()
+}
 with tab4:
-    st.subheader("Out-of-Sample Backtest Results")
-    p_col1, p_col2, p_col3, p_col4 = st.columns(4)
-    p_col1.metric("Strategy Total Return", f"{strat_total_return:+.2f}%")
-    p_col2.metric("Buy & Hold Return", f"{market_total_return:+.2f}%")
-    p_col3.metric("Annualized Sharpe Ratio", f"{sharpe_ratio:.2f}")
-    p_col4.metric("Max Drawdown", f"{max_drawdown:.2f}%")
+    st.subheader(f"Out-of-Sample Evaluation & Backtest Analysis ({future_period}-Day Horizon Strategy)")
     
-    fig_equity = go.Figure()
-    fig_equity.add_trace(go.Scatter(x=test_df.index, y=test_df['Portfolio_Strategy'], name='ML Strategy Portfolio', line=dict(color='springgreen', width=2)))
-    fig_equity.add_trace(go.Scatter(x=test_df.index, y=test_df['Portfolio_Market'], name='Buy & Hold TSLA Portfolio', line=dict(color='deepskyblue', width=2, dash='dash')))
-    fig_equity.update_layout(
-        title=f"Portfolio Value Growth starting from ${initial_capital:,.2f} (Test Period)",
-        xaxis_title="Date", yaxis_title="Portfolio Value ($)", template="plotly_dark", height=500
+    # --- Confusion Matrix & Equity Plot Section ---
+    st.markdown("### 📊 Test Confusion Matrix & Equity Curve")
+    
+    CLASS_NAMES = {-1: "Sell", 0: "Hold", 1: "Buy"}
+    COLORS = {"strategy": "#16a34a", "buyhold": "#6b7280"}
+    
+    # 1x2 Matplotlib/Seaborn Figure
+    plt.style.use("dark_background")
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), gridspec_kw={"width_ratios": [1, 1.6]})
+    
+    # Subplot 1: Confusion Matrix
+    cm = confusion_matrix(y_test, y_test_pred, labels=[-1, 0, 1])
+    sns.heatmap(
+        cm, annot=True, fmt="d", cmap="Blues", cbar=False, ax=axes[0],
+        xticklabels=[CLASS_NAMES[c] for c in (-1, 0, 1)], 
+        yticklabels=[CLASS_NAMES[c] for c in (-1, 0, 1)]
     )
-    st.plotly_chart(fig_equity, use_container_width=True)
+    axes[0].set_xlabel("Predicted (after threshold)")
+    axes[0].set_ylabel("Actual")
+    axes[0].set_title("Confusion matrix: test")
+    
+    # Subplot 2: Equity Curve
+    axes[1].plot(
+        test_df.index, test_df["Portfolio_Strategy"], color=COLORS["strategy"], lw=2,
+        label=f"ML strategy (Sharpe {strat_fm['Sharpe']:.2f})"
+    )
+    axes[1].plot(
+        test_df.index, test_df["Portfolio_Market"], color=COLORS["buyhold"], ls="--",
+        label=f"Buy & Hold (Sharpe {bh_fm['Sharpe']:.2f})"
+    )
+    axes[1].set_title(f"Test-period equity, ${initial_capital:,.0f} start, {transaction_cost:.1%} fees")
+    axes[1].set_ylabel("Portfolio value ($)")
+    axes[1].legend(loc="upper left")
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+    
+    # --- Financial Metrics Summary Table Section ---
+    st.markdown("### 📑 Test Financial Metrics")
+    
+    fin_table = pd.DataFrame({"ML Strategy": strat_fm, "Buy & Hold": bh_fm})
+    
+    styler = fin_table.style
+    for r in fin_table.index:
+        styler = styler.format(
+            {"Sharpe": "{:.2f}", "Sortino": "{:.2f}", "Trades": "{:.0f}"}.get(r, "{:.1%}"),
+            subset=pd.IndexSlice[[r], :]
+        )
+    
+    st.dataframe(styler, use_container_width=True)
 
 # --- TAB 5: Data & Export ---
 with tab5:
