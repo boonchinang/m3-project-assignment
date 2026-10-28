@@ -42,7 +42,7 @@ The model's probabilities, filtered by a confidence threshold, become daily trad
 
 # Results summary (TSLA)
 
-- **Data:** Yahoo Finance (downloaded), 2013-01-03 to 2026-09-01, 3,436 modelling rows, 18 features
+- **Data:** Yahoo Finance (cached), 2013-01-03 to 2026-09-01, 3,436 modelling rows, 18 features
 - **Target:** 20-day return > +6.0% = Buy, < -6.0% = Sell, else Hold
 - **Selected model:** Logistic Regression (tuned), params {'clf__C': 0.1}, confidence threshold 0.46
 
