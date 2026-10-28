@@ -91,6 +91,12 @@ flowchart LR
     E --> G[Monitoring<br/>PSI drift, rolling Sharpe,<br/>drawdown kill switch]
     G -->|monthly retrain| R
 ```
+## Streamlit
+Install required dependencies:
+pip install streamlit yfinance pandas numpy plotly scikit-learn
+
+Launch the Streamlit App:
+streamlit run streamlit_trading_app.py
 
 ## Disclaimer
 
