@@ -1,16 +1,16 @@
-# TSLA ML Trading Model: Predicting 5-Day Price Direction
+# TSLA ML Trading Model: Predicting 30-Day Price Direction
 
 Module 3 Project (SCTP Advanced Professional Certificate in Data Science & AI)
 
 ## Project overview and problem statement
 
-An investment desk holds Tesla (TSLA) and must decide each day whether to be **long, flat or short** for the coming week. Today it simply **buys and holds**. This project builds a machine-learning model that predicts whether TSLA's next 20-day return will be:
+An investment desk holds Tesla (TSLA) and must decide each day whether to be **long, flat or short** for the coming week. Today it simply **buys and holds**. This project builds a machine-learning model that predicts whether TSLA's next 30-day return will be:
 
 | Label | Rule |
 |---|---|
-| Buy (+1) | 20-day return > +6.0% |
+| Buy (+1) | 30-day return > +6.0% |
 | Hold (0) | between −6.0% and +6.0% |
-| Sell (−1) | 20-day return < −6.0% |
+| Sell (−1) | 30-day return < −6.0% |
 
 The model's probabilities, filtered by a confidence threshold, become daily trading signals. They are judged against buy-and-hold on **after-cost risk-adjusted return (Sharpe ratio)** and drawdown, followed by a deploy / don't-deploy recommendation.
 
@@ -39,23 +39,6 @@ The model's probabilities, filtered by a confidence threshold, become daily trad
 8. **Opportunity sizing** with a block-bootstrap confidence interval on excess return
 
 **Leakage controls:** backward-looking features only (verified by an automated check), purge gaps between splits, time-series cross-validation with a gap, and a scaler fitted inside a `Pipeline`.
-
-# Results summary (TSLA)
-
-- **Data:** Yahoo Finance (cached), 2013-01-03 to 2026-09-01, 3,436 modelling rows, 18 features
-- **Target:** 20-day return > +6.0% = Buy, < -6.0% = Sell, else Hold
-- **Selected model:** Logistic Regression (tuned), params {'clf__C': 0.1}, confidence threshold 0.46
-
-| Test 2023-26 | ML strategy | Buy & Hold |
-|---|---|---|
-| CAGR | 33.2% | 38.6% |
-| Sharpe | 0.99 | 0.82 |
-| Max drawdown | -39.9% | -53.8% |
-| Macro F1 | 30.1% | – |
-| Trades | 68 | 1 |
-
-- **Excess return 95% CI:** [-63.48%, +34.43%] per year
-- **Recommendation:** DO NOT DEPLOY YET: promising, but the edge is not yet statistically reliable or cost-justified; run paper trading
 
 ## Repository structure
 
@@ -91,12 +74,6 @@ flowchart LR
     E --> G[Monitoring<br/>PSI drift, rolling Sharpe,<br/>drawdown kill switch]
     G -->|monthly retrain| R
 ```
-## Streamlit
-Install required dependencies:
-pip install streamlit yfinance pandas numpy plotly scikit-learn
-
-Launch the Streamlit App:
-streamlit run streamlit_trading_app.py
 
 ## Disclaimer
 
