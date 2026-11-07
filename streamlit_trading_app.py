@@ -13,46 +13,20 @@ from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
+# ---------------------------------------------------------
 # Page Configuration
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="TSLA ML Trading Model Dashboard",
+    page_title="ML Trading Model Dashboard",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
-st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #E82127;
-        margin-bottom: 0px;
-    }
-    .sub-header {
-        font-size: 1.1rem;
-        color: #6c757d;
-        margin-bottom: 20px;
-    }
-    .metric-card {
-        background-color: #f8f9fa;
-        border-left: 4px solid #E82127;
-        padding: 15px;
-        border-radius: 5px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# App Title & Header
-st.header('⚡ TSLA ML Trading Model Dashboard')
-st.markdown('<p class="sub-header">Algorithmic Trading, Feature Engineering, Custom Target Horizon & Thresholds, Machine Learning Signals & Backtesting</p>', unsafe_allow_html=True)
-
 # ---------------------------------------------------------
 # Sidebar Configuration
 # ---------------------------------------------------------
 st.sidebar.header("🛠️ Model & Strategy Controls")
-
 ticker = st.sidebar.text_input("Stock Ticker", value="TSLA").upper()
 
 col_date1, col_date2 = st.sidebar.columns(2)
@@ -67,30 +41,19 @@ st.sidebar.caption("Define the future return look-ahead horizon & buy/sell class
 
 future_period = st.sidebar.slider(
     "Look-Ahead Horizon (Trading Days)",
-    min_value=1,
-    max_value=60,
-    value=30,
-    step=1,
+    min_value=1, max_value=60, value=30, step=1,
     help="FUTURE_PERIOD: Number of trading days into the future to measure returns."
 )
 
 col_t1, col_t2 = st.sidebar.columns(2)
 with col_t1:
     buy_threshold_pct = st.number_input(
-        "Buy Thresh (%)",
-        min_value=0.0,
-        max_value=50.0,
-        value=6.0,
-        step=0.5,
+        "Buy Thresh (%)", min_value=0.0, max_value=50.0, value=6.0, step=0.5,
         help="BUY_THRESHOLD: Future return > +X% triggers Buy (1) signal."
     )
 with col_t2:
     sell_threshold_pct = st.number_input(
-        "Sell Thresh (%)",
-        min_value=-50.0,
-        max_value=0.0,
-        value=-6.0,
-        step=0.5,
+        "Sell Thresh (%)", min_value=-50.0, max_value=0.0, value=-6.0, step=0.5,
         help="SELL_THRESHOLD: Future return < -X% triggers Sell (-1) signal."
     )
 
@@ -120,6 +83,37 @@ initial_capital = st.sidebar.number_input("Initial Capital ($)", value=100000, s
 commission = st.sidebar.number_input("Transaction Fee (%)", value=0.1, step=0.05) / 100.0
 
 # ---------------------------------------------------------
+# Custom Styling
+# ---------------------------------------------------------
+st.markdown("""
+<style>
+.main-header {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: #E82127;
+    margin-bottom: 0px;
+}
+.sub-header {
+    font-size: 1.1rem;
+    color: #6c757d;
+    margin-bottom: 20px;
+}
+.metric-card {
+    background-color: #f8f9fa;
+    border-left: 4px solid #E82127;
+    padding: 15px;
+    border-radius: 5px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# App Title & Header (Dynamic Ticker)
+# ---------------------------------------------------------
+st.header(f'⚡ {ticker} ML Trading Model Dashboard')
+st.markdown('<p class="sub-header">Algorithmic Trading, Feature Engineering, Custom Target Horizon & Thresholds, Machine Learning Signals & Backtesting</p>', unsafe_allow_html=True)
+
+# ---------------------------------------------------------
 # Helper Functions: Data Fetching & Feature Engineering
 # ---------------------------------------------------------
 @st.cache_data(ttl=3600)
@@ -142,9 +136,8 @@ def load_stock_data(symbol, start, end):
     # Synthetic realistic stock price generator fallback
     dates = pd.date_range(start=start, end=end, freq='B')
     np.random.seed(42)
-    returns = np.random.normal(0.0012, 0.035, len(dates)) # TSLA-like volatility
+    returns = np.random.normal(0.0012, 0.035, len(dates))
     price = 150.0 * np.exp(np.cumsum(returns))
-    
     high = price * (1 + np.abs(np.random.normal(0, 0.015, len(dates))))
     low = price * (1 - np.abs(np.random.normal(0, 0.015, len(dates))))
     open_p = price * (1 + np.random.normal(0, 0.008, len(dates)))
@@ -162,53 +155,50 @@ def load_stock_data(symbol, start, end):
 
 def engineer_features(df, sma_short, sma_long, rsi_p, bb_p, horizon, buy_thresh, sell_thresh):
     data = df.copy()
-    
+
     # Returns
     data['Return'] = data['Close'].pct_change()
-    
+
     # Moving Averages
     data['SMA_Short'] = data['Close'].rolling(window=sma_short).mean()
     data['SMA_Long'] = data['Close'].rolling(window=sma_long).mean()
     data['SMA_Ratio'] = data['SMA_Short'] / data['SMA_Long']
-    
+
     # RSI Calculation
     delta = data['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=rsi_p).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_p).mean()
     rs = gain / (loss + 1e-9)
     data['RSI'] = 100 - (100 / (1 + rs))
-    
+
     # Bollinger Bands
     data['BB_Middle'] = data['Close'].rolling(window=bb_p).mean()
     data['BB_Std'] = data['Close'].rolling(window=bb_p).std()
     data['BB_Upper'] = data['BB_Middle'] + (2 * data['BB_Std'])
     data['BB_Lower'] = data['BB_Middle'] - (2 * data['BB_Std'])
     data['BB_Width'] = (data['BB_Upper'] - data['BB_Lower']) / data['BB_Middle']
-    
+
     # MACD
     ema12 = data['Close'].ewm(span=12, adjust=False).mean()
     ema26 = data['Close'].ewm(span=26, adjust=False).mean()
     data['MACD'] = ema12 - ema26
     data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-    
+
     # Volatility & Momentum
     data['Volatility_10D'] = data['Return'].rolling(window=10).std()
     data['Mom_5D'] = data['Close'].pct_change(5)
-    
+
     # Future Look-ahead Return Target Definition
     data['Future_Return'] = (data['Close'].shift(-horizon) - data['Close']) / data['Close']
-    
-    # Multiclass Classification:
-    # 1  : Buy  (Future Return > buy_thresh)
-    # -1 : Sell (Future Return < sell_thresh)
-    # 0  : Hold / Neutral (In between thresholds)
+
+    # Multiclass Classification Target
     conditions = [
         data['Future_Return'] > buy_thresh,
         data['Future_Return'] < sell_thresh
     ]
     choices = [1, -1]
     data['Target'] = np.select(conditions, choices, default=0)
-    
+
     data.dropna(inplace=True)
     return data
 
@@ -218,7 +208,7 @@ def engineer_features(df, sma_short, sma_long, rsi_p, bb_p, horizon, buy_thresh,
 raw_df = load_stock_data(ticker, start_date, end_date)
 
 if raw_df.empty:
-    st.error("No data found for the given symbol and date range.")
+    st.error(f"No data found for symbol '{ticker}' and the selected date range.")
     st.stop()
 
 df_feat = engineer_features(
@@ -256,9 +246,9 @@ df_test['Signal'] = y_pred
 
 # Generate Position
 if allow_shorting:
-    df_test['Position'] = df_test['Signal'] # 1, 0, or -1
+    df_test['Position'] = df_test['Signal']
 else:
-    df_test['Position'] = np.where(df_test['Signal'] == 1, 1, 0) # Only Long or Cash
+    df_test['Position'] = np.where(df_test['Signal'] == 1, 1, 0)
 
 df_test['Strategy_Return'] = df_test['Position'].shift(1) * df_test['Return'] - (np.abs(df_test['Position'].diff()) * commission)
 df_test.dropna(inplace=True)
@@ -282,13 +272,13 @@ bench_total_return = ((df_test['Cum_Benchmark'].iloc[-1] - initial_capital) / in
 # Target Parameter Status Card
 st.info(
     f"🎯 **Target Configuration Active**: Look-Ahead Horizon = **{future_period} Trading Days** | "
-    f"Buy Threshold (`1`) = **> +{buy_threshold_pct:.1f}%** | "
-    f"Sell Threshold (`-1`) = **< {sell_threshold_pct:.1f}%** | "
-    f"Neutral (`0`) = **Between thresholds**"
+    f"Buy Threshold (1) = **> +{buy_threshold_pct:.1f}%** | "
+    f"Sell Threshold (-1) = **< {sell_threshold_pct:.1f}%** | "
+    f"Neutral (0) = **Between thresholds**"
 )
 
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Latest TSLA Close", f"${latest_close:.2f}", f"{pct_change:+.2f}%")
+m1.metric(f"Latest {ticker} Close", f"${latest_close:.2f}", f"{pct_change:+.2f}%")
 m2.metric("ML Model Accuracy", f"{acc*100:.1f}%")
 m3.metric("Strategy Return", f"{strat_total_return:+.1f}%")
 m4.metric("Buy & Hold Return", f"{bench_total_return:+.1f}%")
@@ -300,9 +290,9 @@ st.markdown("---")
 # Tabs Section
 # ---------------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📊 Price & Indicators", 
-    "🤖 ML Model Analysis", 
-    "📈 Strategy Backtest", 
+    "📊 Price & Indicators",
+    "🤖 ML Model Analysis",
+    "📈 Strategy Backtest",
     "🔮 Live Signal Sandbox"
 ])
 
@@ -311,25 +301,25 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # ---------------------------------------------------------
 with tab1:
     st.subheader("Price History & Technical Overlays")
-    
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-                        subplot_titles=('Price & Moving Averages', 'Relative Strength Index (RSI)', 'MACD'),
-                        row_heights=[0.5, 0.25, 0.25])
-    
-    # Candlestick / Line
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        subplot_titles=('Price & Moving Averages', 'Relative Strength Index (RSI)', 'MACD'),
+        row_heights=[0.5, 0.25, 0.25]
+    )
+
     fig.add_trace(go.Scatter(x=raw_df.index, y=raw_df['Close'], name='Close Price', line=dict(color='#E82127', width=2)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_feat.index, y=df_feat['SMA_Short'], name=f'SMA {sma_short_win}', line=dict(color='#0066CC', width=1)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_feat.index, y=df_feat['SMA_Long'], name=f'SMA {sma_long_win}', line=dict(color='#FF9900', width=1)), row=1, col=1)
-    
-    # RSI
+
     fig.add_trace(go.Scatter(x=df_feat.index, y=df_feat['RSI'], name='RSI', line=dict(color='#8884d8')), row=2, col=1)
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-    
-    # MACD
+
     fig.add_trace(go.Scatter(x=df_feat.index, y=df_feat['MACD'], name='MACD', line=dict(color='blue')), row=3, col=1)
     fig.add_trace(go.Scatter(x=df_feat.index, y=df_feat['MACD_Signal'], name='Signal', line=dict(color='orange')), row=3, col=1)
-    
+
     fig.update_layout(height=700, margin=dict(l=20, r=20, t=40, b=20), template="plotly_white")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -338,9 +328,7 @@ with tab1:
 # ---------------------------------------------------------
 with tab2:
     st.subheader(f"Model Evaluation: {model_type}")
-    
     c1, c2 = st.columns(2)
-    
     y_eval = y_test.loc[df_test.index]
     p_eval = y_pred[:len(df_test)]
     unique_classes = sorted(list(set(y_eval).union(set(p_eval))))
@@ -350,16 +338,14 @@ with tab2:
         st.write("#### Confusion Matrix")
         cm = confusion_matrix(y_eval, p_eval, labels=unique_classes)
         fig_cm = px.imshow(
-            cm,
-            text_auto=True,
+            cm, text_auto=True,
             labels=dict(x="Predicted", y="Actual"),
-            x=class_labels,
-            y=class_labels,
+            x=class_labels, y=class_labels,
             color_continuous_scale='Reds'
         )
         fig_cm.update_layout(height=350, margin=dict(l=20, r=20, t=30, b=20))
         st.plotly_chart(fig_cm, use_container_width=True)
-        
+
     with c2:
         st.write("#### Feature Importance")
         if hasattr(model, 'feature_importances_'):
@@ -370,14 +356,13 @@ with tab2:
             st.plotly_chart(fig_imp, use_container_width=True)
         else:
             st.info("Feature importance plot is available for tree-based models (Random Forest, Gradient Boosting).")
-            
+
     st.write("#### Detailed Classification Metrics (Weighted)")
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-    
     prec = precision_score(y_eval, p_eval, average='weighted', zero_division=0)
     rec = recall_score(y_eval, p_eval, average='weighted', zero_division=0)
     f1 = f1_score(y_eval, p_eval, average='weighted', zero_division=0)
-    
+
     m_col1.metric("Precision (Weighted)", f"{prec:.3f}")
     m_col2.metric("Recall (Weighted)", f"{rec:.3f}")
     m_col3.metric("F1 Score (Weighted)", f"{f1:.3f}")
@@ -388,11 +373,10 @@ with tab2:
 # ---------------------------------------------------------
 with tab3:
     st.subheader("Algorithmic Trading Backtest Performance")
-    
     fig_backtest = go.Figure()
     fig_backtest.add_trace(go.Scatter(x=df_test.index, y=df_test['Cum_Strategy'], name='ML Strategy', line=dict(color='#00CC66', width=2.5)))
-    fig_backtest.add_trace(go.Scatter(x=df_test.index, y=df_test['Cum_Benchmark'], name='Buy & Hold TSLA', line=dict(color='#E82127', width=1.5, dash='dash')))
-    
+    fig_backtest.add_trace(go.Scatter(x=df_test.index, y=df_test['Cum_Benchmark'], name=f'Buy & Hold {ticker}', line=dict(color='#E82127', width=1.5, dash='dash')))
+
     fig_backtest.update_layout(
         title="Portfolio Growth ($)",
         yaxis_title="Portfolio Value ($)",
@@ -401,15 +385,14 @@ with tab3:
         legend=dict(x=0.01, y=0.99)
     )
     st.plotly_chart(fig_backtest, use_container_width=True)
-    
-    # Backtest Performance Metrics
+
     daily_strat_ret = df_test['Strategy_Return']
     sharpe = (daily_strat_ret.mean() / (daily_strat_ret.std() + 1e-9)) * np.sqrt(252)
     cum_max = df_test['Cum_Strategy'].cummax()
     drawdown = (df_test['Cum_Strategy'] - cum_max) / cum_max
     max_drawdown = drawdown.min() * 100
     win_rate = (daily_strat_ret > 0).mean() * 100
-    
+
     st.write("#### Performance Summary")
     b1, b2, b3, b4 = st.columns(4)
     b1.metric("Sharpe Ratio (Annualized)", f"{sharpe:.2f}")
@@ -423,7 +406,7 @@ with tab3:
 with tab4:
     st.subheader("🔮 Real-Time Trading Signal Predictor")
     st.write("Adjust indicator features below to test the trained model's target signal output in real-time:")
-    
+
     s1, s2, s3 = st.columns(3)
     with s1:
         inp_return = st.slider("Daily Return", -0.10, 0.10, 0.01, 0.005)
@@ -448,13 +431,13 @@ with tab4:
         'Mom_5D': inp_mom
     }])
 
-    pred_signal = model.predict(input_df)[0]
-    
+    pred_signal = model.predict(input_df)
+
     st.markdown("---")
     st.write("### Predicted Target Signal:")
     if pred_signal == 1:
-        st.success(f"🟢 **BUY SIGNAL (`1`)** — Expecting future return > +{buy_threshold_pct:.1f}% over the next {future_period} trading days.")
+        st.success(f"🟢 **BUY SIGNAL (1)** — Expecting future return > +{buy_threshold_pct:.1f}% over the next {future_period} trading days.")
     elif pred_signal == -1:
-        st.error(f"🔴 **SELL / SHORT SIGNAL (`-1`)** — Expecting future return < {sell_threshold_pct:.1f}% over the next {future_period} trading days.")
+        st.error(f"🔴 **SELL / SHORT SIGNAL (-1)** — Expecting future return < {sell_threshold_pct:.1f}% over the next {future_period} trading days.")
     else:
-        st.warning(f"🟡 **NEUTRAL / HOLD SIGNAL (`0`)** — Expecting price movement between {sell_threshold_pct:.1f}% and +{buy_threshold_pct:.1f}%.")
+        st.warning(f"🟡 **NEUTRAL / HOLD SIGNAL (0)** — Expecting price movement between {sell_threshold_pct:.1f}% and +{buy_threshold_pct:.1f}%.")
