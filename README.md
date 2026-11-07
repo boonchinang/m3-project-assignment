@@ -1,10 +1,10 @@
-# TSLA ML Trading Model: Predicting 30-Day Price Direction
+# ML Trading Model: Predicting 30-Day Price Direction
 
 Module 3 Project (SCTP Advanced Professional Certificate in Data Science & AI)
 
 ## Project overview and problem statement
 
-An investment desk holds Tesla (TSLA) and must decide each day whether to be **long, flat or short** for the coming week. Today it simply **buys and holds**. This project builds a machine-learning model that predicts whether TSLA's next 30-day return will be:
+An investment desk holds decide each day whether to be **long, flat or short** for the coming week. Today it simply **buys and holds**. This project builds a machine-learning model that predicts whether the selected stock next 30-day return will be:
 
 | Label | Rule |
 |---|---|
@@ -18,12 +18,10 @@ The model's probabilities, filtered by a confidence threshold, become daily trad
 
 ## Dataset
 
-- **Source:** Yahoo Finance daily OHLCV for `TSLA`, split- and dividend-adjusted, via the [`yfinance`](https://pypi.org/project/yfinance/) library
+- **Source:** Yahoo Finance daily OHLCV for Stock Ticker, split- and dividend-adjusted, via the [`yfinance`](https://pypi.org/project/yfinance/) library
 - **Period:** 2012-01-01 to 2026-10-01 
 - **Features:** 18 scale-free technical features (returns, moving-average ratios, RSI, price-normalised MACD, Bollinger %B, volatility and volume ratios)
 - **Splits (chronological, purged):** train 2012–2020 · validation 2021–2022 · test 2023–2026
-
-**How to obtain it:** the notebook downloads the data automatically on first run and caches it to `data/tsla_ohlcv.csv`. Yahoo data is for personal and educational use, so the CSV is not committed to this repository.
 
 > If the download fails (no internet), the notebook falls back to **synthetic** data and prints a warning. Synthetic results have no real-world meaning.
 
