@@ -10,8 +10,9 @@ import datetime
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
+from xgboost import XGBClassifier
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from sklearn.model_selection import train_test_split
 
 # ---------------------------------------------------------
 # Page Configuration
@@ -73,7 +74,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Machine Learning Model")
 model_type = st.sidebar.selectbox(
     "Select Classifier",
-    ["Random Forest", "Gradient Boosting", "Logistic Regression", "Support Vector Machine"]
+    ["Random Forest", "Gradient Boosting", "XGBoost", "Logistic Regression", "Support Vector Machine"]
 )
 test_size = st.sidebar.slider("Test Set Ratio", 0.1, 0.4, 0.2, 0.05)
 
@@ -119,8 +120,7 @@ st.markdown('<p class="sub-header">Algorithmic Trading, Feature Engineering, Cus
 @st.cache_data(ttl=3600)
 def load_stock_data(symbol, start, end):
     """
-    Generate or fetch stock data for demo/interactive analysis.
-    Uses yfinance if available, or realistic simulation fallback if offline.
+    Fetch stock data using yfinance, or fallback to realistic simulation if offline/failed.
     """
     try:
         import yfinance as yf
@@ -191,7 +191,7 @@ def engineer_features(df, sma_short, sma_long, rsi_p, bb_p, horizon, buy_thresh,
     # Future Look-ahead Return Target Definition
     data['Future_Return'] = (data['Close'].shift(-horizon) - data['Close']) / data['Close']
 
-    # Multiclass Classification Target
+    # Multiclass Classification Target (-1: Sell, 0: Neutral, 1: Buy)
     conditions = [
         data['Future_Return'] > buy_thresh,
         data['Future_Return'] < sell_thresh
@@ -227,21 +227,29 @@ X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
 y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
 df_test = df_feat.iloc[split_idx:].copy()
 
+# Encode Target Labels (Ensures compatibility with XGBoost & scikit-learn models)
+label_encoder = LabelEncoder()
+y_train_encoded = label_encoder.fit_transform(y_train)
+y_test_encoded = label_encoder.transform(y_test)
+
 # Model Initialization
 if model_type == "Random Forest":
     model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
 elif model_type == "Gradient Boosting":
     model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=3, random_state=42)
+elif model_type == "XGBoost":
+    model = XGBClassifier(n_estimators=100, learning_rate=0.05, max_depth=3, random_state=42, eval_metric='mlogloss')
 elif model_type == "Logistic Regression":
     model = LogisticRegression(max_iter=1000)
 else:
     model = SVC(probability=True, kernel='rbf', C=1.0)
 
 # Train Model
-model.fit(X_train, y_train)
+model.fit(X_train, y_train_encoded)
 
-# Predictions
-y_pred = model.predict(X_test)
+# Predictions & Decode back to [-1, 0, 1]
+y_pred_encoded = model.predict(X_test)
+y_pred = label_encoder.inverse_transform(y_pred_encoded)
 df_test['Signal'] = y_pred
 
 # Generate Position
@@ -269,7 +277,6 @@ acc = accuracy_score(y_test.loc[df_test.index], y_pred[:len(df_test)])
 strat_total_return = ((df_test['Cum_Strategy'].iloc[-1] - initial_capital) / initial_capital) * 100
 bench_total_return = ((df_test['Cum_Benchmark'].iloc[-1] - initial_capital) / initial_capital) * 100
 
-# Target Parameter Status Card
 st.info(
     f"🎯 **Target Configuration Active**: Look-Ahead Horizon = **{future_period} Trading Days** | "
     f"Buy Threshold (1) = **> +{buy_threshold_pct:.1f}%** | "
@@ -355,7 +362,7 @@ with tab2:
             fig_imp.update_layout(height=350, margin=dict(l=20, r=20, t=30, b=20))
             st.plotly_chart(fig_imp, use_container_width=True)
         else:
-            st.info("Feature importance plot is available for tree-based models (Random Forest, Gradient Boosting).")
+            st.info("Feature importance plot is available for tree-based models (Random Forest, Gradient Boosting, XGBoost).")
 
     st.write("#### Detailed Classification Metrics (Weighted)")
     m_col1, m_col2, m_col3, m_col4 = st.columns(4)
@@ -431,7 +438,8 @@ with tab4:
         'Mom_5D': inp_mom
     }])
 
-    pred_signal = model.predict(input_df)
+    pred_encoded = model.predict(input_df)
+    pred_signal = label_encoder.inverse_transform(pred_encoded)[0]
 
     st.markdown("---")
     st.write("### Predicted Target Signal:")
