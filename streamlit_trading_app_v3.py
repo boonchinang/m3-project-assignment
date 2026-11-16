@@ -9,8 +9,9 @@ What it does (same method as the v3 notebook):
   * Downloads daily OHLCV from Yahoo Finance (split/dividend-adjusted).
     If the download fails it falls back to synthetic data — and says so
     loudly, instead of silently showing fake prices.
-  * Builds the notebook's 18 scale-free technical features, labels each
-    day Buy (+1) / Hold (0) / Sell (-1) from its future 30-day return,
+  * Builds only the 10 most important of the notebook's 18 scale-free
+    technical features (see TOP_10_FEATURES below), labels each day
+    Buy (+1) / Hold (0) / Sell (-1) from its future 30-day return,
     and splits chronologically with purging: train / validation / test.
   * Trains the notebook's candidates (Dummy, Logistic Regression,
     Random Forest, Histogram Gradient Boosting, XGBoost) on train,
@@ -20,8 +21,8 @@ What it does (same method as the v3 notebook):
     filled at the close of day t+1 (execution lag 2), 0.1% per unit of
     position change.
 
-Run it with:  streamlit run streamlit_trading_app_v3.py
-Install first: pip install -r requirements-v3.txt
+Run it with:  streamlit run streamlit_trading_app_v3_top10.py
+Install first: pip install -r requirements-v3-top10.txt
 """
 
 import datetime
@@ -215,31 +216,42 @@ else:
                f"{raw_df.index.min():%Y-%m-%d} to {raw_df.index.max():%Y-%m-%d}")
 
 # ---------------------------------------------------------------------------
-# Features + target — exactly the v3 notebook's 18 features
+# Features — the 10 most important of the v3 notebook's 18 features
 # ---------------------------------------------------------------------------
-FEATURE_COLS = ["Return_1D", "Return_5D", "Return_10D", "Return_21D", "Return_63D",
-                "Ratio_SMA10", "Ratio_SMA50", "Ratio_SMA200", "Dist_52W_High",
-                "RSI_14", "MACD_Pct", "MACD_Signal_Pct", "MACD_Hist_Pct", "BB_PctB",
-                "Vol_20D", "Vol_Ratio_20_60", "HL_Range_14", "Volume_Ratio"]
+# Ranking method (reproduced from the v3 notebook, §8.1): permutation
+# importance on the 2021-2022 validation set for the notebook's best model
+# (Logistic Regression, tuned C=1.0), scoring macro F1, n_repeats=10,
+# on real Yahoo Finance data for the default ticker, 2012-2026.
+# The top 5 reproduced the notebook's own Top 5 exactly. Full ranking:
+#   1 MACD_Pct            +0.033   6 Volume_Ratio       +0.001
+#   2 MACD_Signal_Pct     +0.028   7 Return_1D          +0.001
+#   3 Dist_52W_High       +0.023   8 HL_Range_14        -0.003
+#   4 Vol_Ratio_20_60     +0.020   9 Return_5D          -0.004
+#   5 Ratio_SMA50         +0.007  10 Return_63D         -0.004
+# Honest caveat: only the top 5 are clearly positive — ranks 6-10 are
+# essentially zero (within noise). Importance is also model-dependent:
+# Random Forest's own importances rank Ratio_SMA200 and Vol_20D highly,
+# but those two were dropped here because they scored lowest for the
+# notebook's best (Logistic Regression) model. Dropping the other 8
+# features therefore loses little for this model, but re-run the
+# permutation-importance check if you change ticker, dates or best model.
+TOP_10_FEATURES = ["MACD_Pct", "MACD_Signal_Pct", "Dist_52W_High",
+                   "Vol_Ratio_20_60", "Ratio_SMA50", "Volume_Ratio",
+                   "Return_1D", "HL_Range_14", "Return_5D", "Return_63D"]
+FEATURE_COLS = TOP_10_FEATURES
 
 
 def build_features(df):
+    """Only the 10 features in FEATURE_COLS are built (same formulas as v3)."""
     d = df.copy()
     c = d["Close"]
-    for n in (1, 5, 10, 21, 63):
+    for n in (1, 5, 63):
         d[f"Return_{n}D"] = c.pct_change(n)
-    for n in (10, 50, 200):
-        d[f"Ratio_SMA{n}"] = c / c.rolling(n).mean()
+    d["Ratio_SMA50"] = c / c.rolling(50).mean()
     d["Dist_52W_High"] = c / c.rolling(252).max() - 1
-    delta = c.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    d["RSI_14"] = 100 - 100 / (1 + gain / (loss + 1e-8))
     macd = c.ewm(span=12, adjust=False).mean() - c.ewm(span=26, adjust=False).mean()
     signal = macd.ewm(span=9, adjust=False).mean()
-    d["MACD_Pct"], d["MACD_Signal_Pct"], d["MACD_Hist_Pct"] = macd / c, signal / c, (macd - signal) / c
-    mid, sd = c.rolling(20).mean(), c.rolling(20).std()
-    d["BB_PctB"] = (c - (mid - 2 * sd)) / (4 * sd + 1e-8)
+    d["MACD_Pct"], d["MACD_Signal_Pct"] = macd / c, signal / c
     r = c.pct_change()
     d["Vol_20D"] = r.rolling(20).std()
     d["Vol_Ratio_20_60"] = d["Vol_20D"] / (r.rolling(60).std() + 1e-8)
@@ -506,7 +518,7 @@ st.markdown("---")
 st.caption(f"Splits for {ticker}: train {train_idx.min():%Y-%m-%d}–{train_idx.max():%Y-%m-%d} "
            f"({len(train_idx):,} rows) · validation {val_idx.min():%Y-%m-%d}–{val_idx.max():%Y-%m-%d} "
            f"({len(val_idx):,} rows) · test {test_idx.min():%Y-%m-%d}–{test_idx.max():%Y-%m-%d} "
-           f"({len(test_idx):,} rows) · 18 features · data: {data_source}")
+           f"({len(test_idx):,} rows) · 10 features (top 10 by permutation importance) · data: {data_source}")
 
 # ---------------------------------------------------------------------------
 # Tabs
@@ -532,7 +544,12 @@ with tab1:
                              name="SMA 10", line=dict(color="#0066CC", width=1)), row=1, col=1)
     fig.add_trace(go.Scatter(x=raw_df.index, y=raw_df["Close"].rolling(50).mean(),
                              name="SMA 50", line=dict(color="#FF9900", width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=feat_df.index, y=feat_df["RSI_14"], name="RSI (14)",
+    # RSI is chart-only here (it is NOT one of the 10 model features).
+    _delta = raw_df["Close"].diff()
+    _gain = _delta.clip(lower=0).rolling(14).mean()
+    _loss = (-_delta.clip(upper=0)).rolling(14).mean()
+    _rsi = 100 - 100 / (1 + _gain / (_loss + 1e-8))
+    fig.add_trace(go.Scatter(x=raw_df.index, y=_rsi, name="RSI (14)",
                              line=dict(color="#8884d8")), row=2, col=1)
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
@@ -643,10 +660,10 @@ with tab4:
     # Slider ranges from the training data (1st–99th percentile, widened a little)
     train_feat = df_model.loc[train_idx, FEATURE_COLS]
     inputs = {}
-    groups = [("Momentum", ["Return_1D", "Return_5D", "Return_10D", "Return_21D", "Return_63D"]),
-              ("Trend", ["Ratio_SMA10", "Ratio_SMA50", "Ratio_SMA200", "Dist_52W_High"]),
-              ("Oscillators", ["RSI_14", "MACD_Pct", "MACD_Signal_Pct", "MACD_Hist_Pct", "BB_PctB"]),
-              ("Volatility & Volume", ["Vol_20D", "Vol_Ratio_20_60", "HL_Range_14", "Volume_Ratio"])]
+    groups = [("Momentum", ["Return_1D", "Return_5D", "Return_63D"]),
+              ("Trend", ["Ratio_SMA50", "Dist_52W_High"]),
+              ("Oscillators", ["MACD_Pct", "MACD_Signal_Pct"]),
+              ("Volatility & Volume", ["Vol_Ratio_20_60", "HL_Range_14", "Volume_Ratio"])]
     for group_name, cols in groups:
         st.write(f"**{group_name}**")
         gcols = st.columns(3)
@@ -686,4 +703,4 @@ with tab4:
 
 st.caption(f"Educational project only — not investment advice. "
            f"Model: {best_name} for {ticker} · Data: {data_source} · "
-           f"Features: 18 (v3 notebook) · Execution lag: {execution_lag} day(s).")
+           f"Features: 10 (top 10 by permutation importance, v3 notebook) · Execution lag: {execution_lag} day(s).")
