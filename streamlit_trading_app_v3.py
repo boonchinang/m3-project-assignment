@@ -108,7 +108,7 @@ ticker = st.sidebar.text_input("Stock Ticker", value="TSLA").strip().upper()
 
 col_d1, col_d2 = st.sidebar.columns(2)
 with col_d1:
-    start_date = st.date_input("Start Date", value=datetime.date(2012, 1, 1))
+    start_date = st.date_input("Start Date", value=datetime.date(2017, 1, 1))
 with col_d2:
     end_date = st.date_input("End Date", value=datetime.date.today())
 col_d3, col_d4 = st.sidebar.columns(2)
